@@ -5,7 +5,7 @@
             [digest :refer [sha-224]]
             [robert.hooke :refer [add-hook]]))
 
-(declare copy-file calculate-fileinfo)
+(declare copy-file create-fileinfo)
 
 (defn archive-dir [source-dir target-dir filter]
   (let [source (file-seq (clojure.java.io/file source-dir))]
@@ -13,7 +13,7 @@
       (if-let [entry (first infiles)]
         (if (and (.isFile entry) (filter entry))
           (let [{:keys [checksum subpath dir-path file-exists] :as fileinf}
-                (calculate-fileinfo entry target-dir)]
+                (create-fileinfo entry target-dir)]
             (if-not file-exists (copy-file fileinf))
             (recur (rest infiles)
                    (if file-exists copied (inc copied))
@@ -30,11 +30,17 @@
   (f orig-arg)
   (println "."))
 
-(defn ^:private calculate-fileinfo [entry target-dir]
-  (let [checksum (sha-224 entry)
-        subpath (join "/" (map join (partition 2 checksum)))
+(defn ^:private create-fileinfo [file target-dir]
+  (let [checksum (sha-224 file)
+        subpath (loop [partitions [3 3 3 4 5 6 8 10 14], val checksum, res []]
+                  (if-let [cur-partition (first partitions)]
+                    (recur (rest partitions)
+                           (drop cur-partition val)
+                           (conj res (apply str (take cur-partition val))))
+                    (join "/" res)))
+
         dir-path (join "/" [target-dir subpath])]
-    {:entry entry
+    {:entry file
      :checksum checksum
      :subpath subpath
      :dir-path dir-path
