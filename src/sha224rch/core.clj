@@ -1,5 +1,6 @@
 (ns sha224rch.core
   (:gen-class)
+  (:import [java.io File])
   (:require [clojure.java.io :refer [as-file copy make-parents]]
             [clojure.string :refer [join]]
             [digest :refer [sha-224]]
@@ -23,7 +24,8 @@
 
 (defn ^:private copy-file [{:keys [dir-path checksum entry]}]
   (make-parents dir-path)
-  (copy entry (as-file dir-path)))
+  (copy entry (as-file (str dir-path ".tmp")))
+  (.renameTo (File. (str dir-path ".tmp")) (File. dir-path) ))
 
 (defn ^:private copy-file-hook [f {:keys [checksum entry] :as orig-arg}]
   (print (format  "copy      %s %s" checksum (.getPath entry)))
@@ -54,7 +56,7 @@
 
 parameters: source target [pattern]
 
-Example: /srv/files /backup \"(?i)(jpe?g$|png$|gif$|tiff?$)\"")
+Example: /srv/files /backup \"(?i)(jpe?g$|png$|gif$|tiff?$|bmp$|mov$|mp4$|avi$|mkv$|mpeg$|webm$|wmv$)\"")
     (let [source (nth args 0)
           target (nth args 1)
           pattern (if (> (count args) 2) (nth args 2) ".*")]
