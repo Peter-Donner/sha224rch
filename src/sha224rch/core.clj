@@ -1,7 +1,10 @@
 (ns sha224rch.core
   (:gen-class)
-  (:import [java.io File])
-  (:require [clojure.java.io :refer [as-file copy make-parents]]
+  (:import [java.io File]
+           [java.nio.file Files LinkOption]
+           [java.nio.file.attribute BasicFileAttributes])
+  (:require [clojure.data.xml :as xml]
+   [clojure.java.io :refer [as-file copy make-parents]]
             [clojure.string :refer [join]]
             [digest :refer [sha-224]]
             [robert.hooke :refer [add-hook]]))
@@ -22,10 +25,25 @@
           (recur (rest infiles) copied total))
         {:copied copied, :duplicates (- total copied)}))))
 
-(defn ^:private copy-file [{:keys [dir-path checksum entry]}]
+(defn write-metadata [{:keys [entry meta-path]}]
+  (let [last-modified (.lastModified entry)
+        attr (Files/readAttributes (.toPath entry) BasicFileAttributes
+                                   (into-array LinkOption []))
+        tags (xml/element
+              :sha244rch-metadata
+              {:filename (.getPath entry)
+               :last-modified last-modified
+               :creation-time (.creationTime attr)})]
+    (with-open [out-file (java.io.FileWriter. meta-path)]
+      (xml/emit tags out-file))))
+
+(defn ^:private copy-file [{:keys [dir-path checksum entry] :as orig-arg}]
   (make-parents dir-path)
-  (copy entry (as-file (str dir-path ".tmp")))
-  (.renameTo (File. (str dir-path ".tmp")) (File. dir-path) ))
+  (let [temp-path (str dir-path ".tmp")
+        meta-path (str dir-path ".xml")]
+    (copy entry (as-file temp-path))
+    (write-metadata (merge orig-arg {:meta-path meta-path}))
+    (.renameTo (File. temp-path) (File. dir-path))))
 
 (defn ^:private copy-file-hook [f {:keys [checksum entry] :as orig-arg}]
   (print (format  "copy      %s %s" checksum (.getPath entry)))
