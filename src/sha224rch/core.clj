@@ -1,36 +1,13 @@
 (ns sha224rch.core
   (:gen-class)
-  (:import [java.io File])
-  (:require [clojure.java.io :refer [as-file copy make-parents]]
+  (:import [java.io File]
+           [java.nio.file Files LinkOption]
+           [java.nio.file.attribute BasicFileAttributes])
+  (:require [clojure.data.xml :as xml]
+   [clojure.java.io :refer [as-file copy make-parents]]
             [clojure.string :refer [join]]
             [digest :refer [sha-224]]
             [robert.hooke :refer [add-hook]]))
-
-(declare copy-file create-fileinfo)
-
-(defn archive-dir [source-dir target-dir filter]
-  (let [source (file-seq (clojure.java.io/file source-dir))]
-    (loop [infiles source, copied 0, total 0]
-      (if-let [entry (first infiles)]
-        (if (and (.isFile entry) (filter entry))
-          (let [{:keys [checksum subpath dir-path file-exists] :as fileinf}
-                (create-fileinfo entry target-dir)]
-            (if-not file-exists (copy-file fileinf))
-            (recur (rest infiles)
-                   (if file-exists copied (inc copied))
-                   (inc total)))
-          (recur (rest infiles) copied total))
-        {:copied copied, :duplicates (- total copied)}))))
-
-(defn ^:private copy-file [{:keys [dir-path checksum entry]}]
-  (make-parents dir-path)
-  (copy entry (as-file (str dir-path ".tmp")))
-  (.renameTo (File. (str dir-path ".tmp")) (File. dir-path) ))
-
-(defn ^:private copy-file-hook [f {:keys [checksum entry] :as orig-arg}]
-  (print (format  "copy      %s %s" checksum (.getPath entry)))
-  (f orig-arg)
-  (println "."))
 
 (defn ^:private create-fileinfo [file target-dir]
   (let [checksum (sha-224 file)
@@ -46,7 +23,50 @@
      :checksum checksum
      :subpath subpath
      :dir-path dir-path
+     :temp-path (str dir-path ".tmp")
+     :meta-path (str dir-path ".xml")
      :file-exists (.exists (as-file dir-path))}))
+
+(defn write-metadata [{:keys [entry meta-path]}]
+  (let [last-modified (.lastModified entry)
+        attr (Files/readAttributes (.toPath entry) BasicFileAttributes
+                                   (into-array LinkOption []))
+        tags (xml/element
+              :sha244rch-metadata
+              {:version "1"
+               :filename (.getPath entry)
+               :creation-time (.creationTime attr)
+               :modification-time (.lastModifiedTime attr)})]
+    (with-open [out-file (java.io.FileWriter. meta-path)]
+      (xml/emit tags out-file))))
+
+(defn ^:private copy-file [{:keys [dir-path temp-path checksum entry] :as orig-arg}]
+  (make-parents dir-path)
+  (copy entry (as-file temp-path))
+  (write-metadata orig-arg)
+  (.renameTo (File. temp-path) (File. dir-path)))
+
+(defn archive-dir [source-dir target-dir filter]
+  (let [source (file-seq (clojure.java.io/file source-dir))]
+    (loop [infiles source, copied 0, total 0]
+      (if-let [entry (first infiles)]
+        (if (and (.isFile entry) (filter entry))
+          (let [{:keys [checksum subpath dir-path file-exists meta-path] :as fileinf}
+                (create-fileinfo entry target-dir)]
+            (if file-exists
+              (when-not (.exists (as-file meta-path))
+                (write-metadata fileinf))
+              (copy-file fileinf))
+            (recur (rest infiles)
+                   (if file-exists copied (inc copied))
+                   (inc total)))
+          (recur (rest infiles) copied total))
+        {:copied copied, :duplicates (- total copied)}))))
+
+(defn ^:private copy-file-hook [f {:keys [checksum entry] :as orig-arg}]
+  (print (format  "copy      %s %s" checksum (.getPath entry)))
+  (f orig-arg)
+  (println "."))
 
 (add-hook #'copy-file #'copy-file-hook)
 
