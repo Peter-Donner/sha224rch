@@ -37,7 +37,7 @@
                :filename (.getPath entry)
                :creation-time (.creationTime attr)
                :modification-time (.lastModifiedTime attr)})]
-    (with-open [out-file (java.io.FileWriter. meta-path)]
+    (with-open [out-file (clojure.java.io/writer meta-path :encoding "UTF-8")]
       (xml/emit tags out-file))))
 
 (defn ^:private copy-file [{:keys [dir-path temp-path checksum entry] :as orig-arg}]
